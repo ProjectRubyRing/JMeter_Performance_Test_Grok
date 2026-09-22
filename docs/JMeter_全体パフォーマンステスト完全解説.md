@@ -2,7 +2,7 @@
 
 **文書種別:** 実務向け解説（用語・観点・レポート・実行注意点・AWS構成別の測り方）  
 **対象読者:** 性能試験を初めて設計する人、インフラとアプリの境目で結果が読めない人、小学生にも説明できる言葉で原理を押さえたい人  
-**対象ツール:** Apache JMeter 5.6.3（2026年時点の公式最新安定版。Java 8以上必須、実行は Java 17 以上を推奨。次期メジャーは Java 17 必須予定）  
+**対象ツール:** Apache JMeter 5.6.3（2026-09 時点の公式最新安定版。Java 8 以上必須、実行は Java 17 以上を推奨。未リリースの 6.0 nightly は Java 17 必須で、本試験には使わない）  
 **対象構成の典型例:**
 
 ```text
@@ -147,24 +147,29 @@ JMeter はブラウザではない。ブラウザの見た目は描かない。�
 5. 結果を **SampleResult** として記録する。
 6. リスナーや HTML レポートが集計する。
 
-タイムラインはだいたいこうなる。
+1 サンプルの中の順番は、公式の実行順（Execution order）どおりである。
 
 ```text
 スレッド開始
   →（ランプアップ待ち）
   → ループ開始
-      → タイマー（思考時間）
-      → サンプラー送信
-      → Connect Time（TCP/TLS の握手）
-      → Latency（最初のバイトが来るまで）
-      → Elapsed（最後のバイトまで）
-      → アサーション
-      → 後処理（JSON 抽出、Cookie 更新）
+      → 設定要素
+      → 前置処理（Pre-Processor）
+      → タイマー（思考時間。Idle Time。Elapsed には入らない）
+      → サンプラー開始
+           Connect Time … TCP/TLS。新規接続のときだけ。再利用ならほぼ 0
+           Latency … 開始から最初の応答まで（Connect を含む。足し算しない）
+           Elapsed … 開始から最後のバイトまで（Latency を含む。足し算しない）
+      → 後置処理（Post-Processor。JSON 抽出はここ）
+      → アサーション（抽出した値をここで判定できる）
+      → リスナー
   → ループ終了
 スレッド終了
 ```
 
-**小学生向け:** JMeter は「同じ注文を、たくさんの人が同時に出す機械」である。ストップウォッチは「注文してから料理が全部届くまで」を測る。
+Connect、Latency、Elapsed は三つ足す時間ではない。内側から外側への入れ子である。Cookie の更新は後置処理ではなく、HTTP Cookie Manager（設定要素）がリクエストの中で行う。
+
+**小学生向け:** JMeter は「同じ注文を、たくさんの人が同時に出す機械」である。ストップウォッチは「注文してから料理が全部届くまで」を測る。電話をかけた時間は、そのストップウォッチの中に入っている。
 
 ### 3.3 GUI と非 GUI
 
@@ -194,8 +199,8 @@ jmeter -n -t test.jmx -l results.jtl -e -o html-report -j jmeter.log
 
 ### 3.4 最新版で押さえること（5.6.3）
 
-- 実行は Java 8 以上、推奨 Java 17 以上。
-- 公式は「最新版を使え。3 世代以上古い版は避ける」。
+- 安定版 5.6.3 の実行は Java 8 以上、推奨は Java 17 以上。2026-09 時点の未リリース 6.0 nightly は Java 17 必須。nightly は本試験に使わない。
+- 公式ベストプラクティスは「最新版を使え。最新より 3 版以上古いものは避ける」。
 - BeanShell は負荷試験向けではない。JSR223 + Groovy（コンパイルキャッシュあり）を使う。
 - `user.properties` を変更し、`jmeter.properties` 本体は触らない（次バージョンへの移行が楽）。
 - HTML ダッシュボードは JMeter 3.0（2016）以降の標準成果物。
@@ -210,7 +215,7 @@ jmeter -n -t test.jmx -l results.jtl -e -o html-report -j jmeter.log
 
 試験の設計図全体。スレッドグループ、設定、サンプラー、リスナーが入る入れ物。ファイルは `.jmx`（XML）。
 
-**注意:** 機能テストモード（Functional Mode）をオンにすると応答本文を全部保持し、負荷試験ではメモリが死ぬ。本試験ではオフ。
+**注意:** 機能テストモード（Functional Testing）は、応答本文と送信データを結果ファイルへ追加で書く。リソースが増え、試験が遅くなり得る。CSV の結果ファイルには効かない（CSV は本文を保存できない）。本試験の JTL を CSV にしていても、このチェックはオフにする。本文でメモリが死ぬ主因は View Results Tree である。
 
 ### 4.2 スレッドグループ（Thread Group）
 
@@ -226,7 +231,7 @@ jmeter -n -t test.jmx -l results.jtl -e -o html-report -j jmeter.log
 
 **Open Model Thread Group（5.5 以降）:** 「同時ユーザ数」ではなく「到着率（1秒に何人来るか）」で負荷を描ける。現代の Web は「同時接続」より「到着率」の方が現実に近いことが多い。
 
-**setUp / tearDown Thread Group:** 本負荷の前にログイン用トークンを取る、後でデータを掃除する、などの準備・後始末専用。本負荷の TPS に混ぜない。
+**setUp / tearDown Thread Group:** 本負荷の前にログイン用トークンを取る、後でデータを掃除する、などの準備・後始末専用。そのサンプルも JTL と HTML に入る。ラベルを分け、`jmeter.reportgenerator.sample_filter` で本負荷から外す。外さないと準備の件数が TPS に混ざる。
 
 ### 4.3 仮想ユーザ（VU）とスレッド
 
@@ -236,7 +241,9 @@ JMeter の 1 スレッド ≒ 1 仮想ユーザ。本物の人間と違う点:
 - ブラウザの並列ダウンロード（CSS/JS/画像）を再現するには「埋め込みリソース取得」や別サンプラーが要る。
 - HTTP/1.1 のコネクション再利用、Keep-Alive、HTTP/2 の設定で「見た目の同時ユーザ」と「サーバ側コネクション数」がずれる。
 
-**Coordinated Omission（協調的欠測）:** サーバが遅くなると、スレッドが応答待ちで次のリクエストを出せない。すると「遅いはずの時間帯のサンプルが減り、平均が良く見える」。これはツールのバグというより、クローズドワークロード（スレッド数が固定）の性質である。対策は、到着率ベースのモデル、十分なスレッド、タイムアウトの明示、パーセンタイルの採用。
+**Coordinated Omission（協調的欠測）:** サーバが遅くなると、スレッドが応答待ちで次のリクエストを出せない。出せなかったぶんのサンプルが記録されず、「遅いはずの時間帯が薄くなり、平均もパーセンタイルも良く見える」。公式ベストプラクティスも、スレッド数の見積もりを誤るとこの問題が起きると書いている。クローズドワークロード（同時スレッド数が固定）の性質であり、JMeter だけのバグではない。
+
+対策は、到着率ベース（Open Model Thread Group や Precise Throughput Timer）、待ちで到着が止まらないだけのスレッド、タイムアウトの明示である。パーセンタイルは裾野を見るために必要だが、協調的欠測は直さない。記録されなかったリクエストは、p95 の母集団に入らない。
 
 ### 4.4 サンプラー（Sampler）
 
@@ -246,21 +253,23 @@ HTTP Request の内部時計:
 
 | 指標 | 何を測るか | たとえ |
 | --- | --- | --- |
-| Connect Time | TCP と TLS の握手 | 電話をかけるまでの時間 |
-| Latency | リクエスト送信後、最初の応答バイトまで | 相手が「はい」と声を出すまで |
-| Elapsed（Response Time） | 最初から最後のバイトまで | 話が全部終わるまで |
-| Idle Time | サンプラー前後の待ち（タイマー等） | 注文前にメニューを見ている時間 |
+| Connect Time | TCP と TLS の握手。Latency から引き算されない | 電話がつながるまで。通話時間の外側ではない |
+| Latency | 送る直前から、最初の応答が届くまで。アップロード時間を含む | 相手が最初に声を出すまで |
+| Elapsed（Response Time） | 送る直前から、最後のバイトまで | 話が全部終わるまで |
+| Idle Time | タイマーなどの待ち。Elapsed には入らない | 注文前にメニューを見ている時間 |
 
-**TTFB（Time To First Byte）** は Latency に近い。本文が大きい PDF では Latency は短く Elapsed だけ長い、が典型。帳票はまさにこれ。
+関係は **Connect ≤ Latency ≤ Elapsed**（接続再利用時の Connect はほぼ 0）。三つを足さない。
+
+**TTFB**（送り終わってから最初のバイト）は Latency に近いが同じではない。大きい POST では Latency にアップロードが含まれる。本文が大きい PDF では Latency は短く Elapsed だけ長い、が典型。帳票のダウンロードはまさにこれ。
 
 ### 4.5 トランザクションコントローラ（Transaction Controller）
 
 ログイン〜検索〜登録のように、複数サンプラーを「業務 1 件」に束ねる。
 
-- **Generate parent sample:** 親だけをレポートに出すか、子も出すか。
-- **Include duration of timer and pre-processors:** 思考時間を業務時間に含めるか。SLA が「画面操作込み」なら含め、API 単体なら含めない。混ぜると比較不能になる。
+- **Generate parent sample:** どちらでも、配下の合計時間を表すサンプルが追加される。既定はオフで、追加サンプルは子のあとに独立して出る。オン（親モード）だと子の下にネストされ、子は Tree 以外のリスナーと CSV に出ない（XML には出せる）。ダッシュボードの公式推奨はオフのままである。親モードの CSV には子が無い一方、Hits/s はトランザクションサンプルを無視するので、ヒットが消える。
+- **Include duration of timer and pre-processors:** 思考時間を業務時間に含めるか。SLA が「画面操作込み」なら含め、API 単体なら含めない。混ぜると比較不能になる。既定ではタイマーも前後処理も合計時間に入らない。
 
-HTML レポートの「Transactions per second」は、このコントローラの親サンプルを含む。Hits per second は含まない。**TPS とヒット/秒は別物**である。
+HTML レポートの「Transactions per second」は Transaction Controller のサンプルを含む。Hits per second、Codes per second、成功/失敗の円グラフはそれを除く。**業務 TPS とヒット/秒は別物**である。オフのままだと CSV には子と合計の両方がある。統計表の行を全部足すと二重になる。親モードのアサーションは、個別サンプルと合計サンプルの両方に掛かる。片方だけにするなら、子を Simple Controller に入れてそこへアサーションを置く。
 
 ### 4.6 コントローラ全般
 
@@ -289,7 +298,9 @@ HTML レポートの「Transactions per second」は、このコントローラ�
 | Precise Throughput Timer | より正確な TPS 制御 |
 | Synchronizing Timer | 全員で待ち合わせして同時発射（スパイク再現。常用禁止） |
 
-**置き場所:** タイマーは同じスコープのサンプラーの**前**に効く。意図しないサンプラーまで遅くしていないか、ツリーの入れ子を毎回確認する。
+**置き場所:** タイマーは同じスコープのサンプラーの**前**に効く。同じスコープに複数あれば、待ち時間は合計される。意図しないサンプラーまで遅くしていないか、ツリーの入れ子を毎回確認する。特定の 1 リクエストだけ遅らせるなら、そのサンプラーの子に置く。
+
+**Constant Throughput Timer** の目標はサンプル/分で、スレッド間で共有され、負荷下ではずれやすい。件数/秒を守るなら Precise Throughput Timer か Open Model Thread Group を使う。
 
 ### 4.8 設定要素（Config Element）
 
@@ -305,6 +316,8 @@ HTML レポートの「Transactions per second」は、このコントローラ�
 | User Defined Variables | 定数。実行時上書きは `__P()` と `-J` が本命 |
 | JDBC Connection Configuration | DB 直叩き試験用。全体試験でアプリをバイパスする目的以外では慎重に |
 
+HTTP Request Defaults はマージされる。Header Manager、Cookie Manager、Authorization Manager はマージされない。同じスコープに Manager が複数あると、どれが使われるか指定できない（公式）。認証ヘッダが黙って片方だけになる事故の定番なので、Manager はスレッドグループに一つずつ置く。
+
 ### 4.9 前置・後置処理（Pre/Post Processors）
 
 | 名前 | 役割 |
@@ -317,6 +330,8 @@ HTML レポートの「Transactions per second」は、このコントローラ�
 | JSR223 Assertion | 本文の意味チェック |
 
 **相関（Correlation）:** ログインの CSRF、セッション ID、業務 ID を次のリクエストに引き継ぐこと。これが壊れると、負荷試験なのに 401/403 の山になる。歴史的には、録画したスクリプトが「録画した人のセッション」のまま再生される事故が多発し、抽出子が必須になった。
+
+実行順は、サンプラーの直後が後置処理、その次がアサーションである。抽出してから判定できる。アサーションの前に抽出は終わっている。
 
 ### 4.10 アサーション（Assertion）
 
@@ -557,9 +572,11 @@ JMeter が見るのは「外から測った時間と成否」だけである。�
 4. エラー内訳
 5. Connect Time（TLS と接続枯渇の兆候）
 
-粒度（`jmeter.reportgenerator.overall_granularity`）は短時間試験なら 1000 ms、長時間なら 60000 ms。1 秒未満はスループットグラフが崩れる（公式注意）。
+粒度（`jmeter.reportgenerator.overall_granularity`）の既定は 60000 ms。公式は「1 秒（1000 ms）より大きいこと。さもなければスループットグラフが不正になる」と明記している。短時間試験でも 1000 ms 以下にはしない。
 
-APDEX 閾値は必ず業務 SLA に合わせて変更する。既定の 500 ms / 1500 ms のまま出すと、帳票が全部「不満」になり議論が壊れる。
+APDEX 閾値は必ず業務 SLA に合わせて変更する。既定の 500 ms / 1500 ms のまま出すと、帳票が全部「不満」になり議論が壊れる。業務ごとに変えるなら `jmeter.reportgenerator.apdex_per_transaction` を使う。
+
+HTML ダッシュボードのパーセンタイルは、GUI の Aggregate Report と計算式が違う（既定の推定は LEGACY）。サンプルが少ないと p95 が一致しない。GUI の数字に寄せるなら `backend_metrics_percentile_estimator=R_3`。どちらで計算したかを報告書に書く。
 
 ### 6.3 試験種別ごとの追加レポート
 
@@ -643,7 +660,7 @@ TPS が本番の何十倍にもなる。DB 接続、帳票並列、CPU が非現
 ### 7.5 時刻・期間
 
 - サマータイムや JST/UTC の取り違え。
-- CloudWatch の標準解像度 60 秒。短い試験だと点が足りない。ECS は 2026 年に 20 秒解像度の高速オートスケール用メトリクスが追加されている。短いスパイクは高解像度かアプリメトリクスで見る。
+- CloudWatch のこれらのサービスメトリクスは多くが 60 秒。短い試験だと点が足りない。ECS の CPU/メモリは 2026-06-18 以降、20 秒解像度を選べる。既定の 60 秒のままでは速くならない。有効化はサービスの更新（デプロイ）を伴い、高解像度メトリクスは CloudWatch の追加料金がかかる。短いスパイクは、有効化した 20 秒メトリクスかアプリメトリクスで見る。
 - 試験終了直後にスケールインが起き、ログが消える。保持期間を先に延ばす。
 
 ### 7.6 セキュリティ機器が試験を攻撃とみなす
@@ -667,9 +684,11 @@ WAF、Shield、API Gateway キー、 Cognito のレート、セキュリティ�
 | RDS / Proxy | アイドル切断 | 次回 500 |
 | 帳票 | ジョブタイムアウト | アプリが待ち続ける |
 
-**帳票の同期呼び出しは、この入れ子のどこかで必ず死ぬ。** 29 秒の壁を超える帳票は、そもそも同期 API にしてはいけない。
+**長い帳票の同期呼び出しは、この入れ子のどこかで切れる。** 2 秒で終わる帳票は切れない。API Gateway を通す経路で 29 秒（HTTP API は 30 秒）を超える帳票は、同期 API にしてはいけない。ALB 直打ちの標準ランでは、先に当たるのは多くの場合 ALB の idle（既定 60 秒）である。
 
-ALB の keepalive はアプリ側を **ALB idle より長く** する。逆だと ALB が切れた接続に送って 502 になる（公式の注意）。
+REST の統合タイムアウトを 29 秒より延ばすと、アカウントのスロットルクォータ引き下げが条件になることがある。帳票のために門を長くすると、門の RPS が細くなる。
+
+アプリ（ターゲット）の keep-alive は、ALB の connection idle timeout より長くする。`client_keep_alive.seconds`（クライアントと ALB の最大寿命、既定 3600 秒）とは別である。逆だと ALB が、ターゲットが切った接続へ送って 502 になる（公式の注意）。
 
 ### 7.8 キャッシュを温めない／温めすぎ
 
@@ -722,7 +741,7 @@ p99 が 8 秒でも平均 200 ms はよくある。ユーザの 1% が激怒す�
 
 詳細は次章。要点だけ:
 
-- 既定でアカウント×リージョンあたり **10,000 RPS**、バーストはトークンバケツ **最大 5,000**（一部リージョンは 2,500 / 1,250）。
+- 既定でアカウント×リージョンあたり **10,000 RPS**（HTTP / REST / WebSocket の合計）。バーストはトークンバケツで、多くのリージョンは最大 5,000。アフリカ（ケープタウン）、欧州（ミラノ）、アジアパシフィック（ジャカルタ）など一部リージョンの既定は **2,500 RPS / バースト 1,250**。定常レートは引き上げ申請ができる。バーストは顧客が指定するクォータではない。
 - 429 がアプリエラーに見える。
 - 統合タイムアウト 29/30 秒で帳票が 504。
 - リクエスト課金が試験費用を支配する。
@@ -765,15 +784,17 @@ p99 が 8 秒でも平均 200 ms はよくある。ユーザの 1% が激怒す�
 
 スロットルはトークンバケツ:
 
-- バケツにトークンが最大 **burst** 個（既定の説明では最大 5,000）
-- 毎秒 **rate** 個補充（既定 10,000 RPS。アカウント×リージョンの全 API 合計）
+- バケツにトークンが最大 **burst** 個（多くのリージョンで最大 5,000。一部リージョンの既定は 1,250）
+- 毎秒 **rate** 個補充（多くのリージョンで既定 10,000 RPS。アカウント×リージョンの HTTP / REST / WebSocket 合計）
 - トークンが無いリクエストは **429 Too Many Requests**
 
 Usage Plan / API キー、ステージスロットル、WAF がさらに下のバケツになる。どれか一つでも空なら 429。
 
-REST API の統合タイムアウトは既定 29 秒。Regional / private はクォータ申請で延長できる場合がある。エッジ最適化は 29 秒のまま。HTTP API は 30 秒で上げられない。
+REST API の統合タイムアウトは 50 ミリ秒〜29 秒。Regional と private はクォータ申請で 29 秒を超えて延ばせる場合がある。そのとき、リージョンのスロットルクォータ引き下げが条件になることがある。エッジ最適化は 29 秒のまま。HTTP API の最大は 30 秒で、上げられない。これとは別に、REST のアイドル接続タイムアウトは 310 秒（引き上げ不可）である。
 
-VPC Link でプライベート ALB に直接つなげるようになった（従来 REST は NLB 経由が定番）。ホップが減るとレイテンシは良くなるが、**門の RPS 上限は残る**。
+ペイロード上限は 10 MB。Lambda プロキシ統合は別枠でリクエスト/応答 6 MB。帳票 PDF を Lambda 経由で返す設計は、10 MB より先に 6 MB で詰まる。
+
+2025-11-21 以降、REST API も VPC Link V2 でプライベート ALB へ直結できる。それ以前の REST は VPC Link V1（NLB 経由）が定番だった。HTTP API は以前から VPC Link で ALB に届く。ホップが減るとレイテンシは良くなるが、**門の RPS 上限は残る**。利用できるリージョンは発表範囲を試験前に確認する。
 
 ### 9.4 性能試験の観点
 
@@ -817,9 +838,10 @@ Classic ELB は急激な負荷に事前ウォーム（AWS サポートへ連絡�
 
 - L7。HTTP/HTTPS を終端し、ターゲットグループへ。
 - ヘルスチェックに落ちたタスクには振らない。
-- 接続はクライアント側とターゲット側で別。両方に idle timeout（既定 60 秒）。
-- 2024 年以降、HTTP client keepalive duration（既定 3600 秒）で、クライアント接続の最大寿命も管理する。
-- `TargetResponseTime` はアクセスログの `target_processing_time` と同じ。ALB がタスクに渡してから応答が戻るまで。**アプリ遅延の最もきれいな外測。**
+- 接続はクライアント側とターゲット側で別。両方に connection idle timeout（既定 60 秒、範囲 1〜4000 秒）。
+- HTTP client keepalive duration（属性 `client_keep_alive.seconds`、2024-03 以降）は **クライアントと ALB の間**の接続の最大寿命である。既定 3600 秒、範囲 60 秒〜7 日。無効にはできない。期限後はもう 1 リクエストを受け、HTTP/1.1 なら `Connection: close`、HTTP/2 なら GOAWAY で閉じる。ターゲット側の keep-alive とは別物である。ソーク試験では、おおむね 1 時間ごとに再接続が入り、Connect Time が周期的に跳ねる。
+- HTTP/2 の PING フレームは、ALB の idle timeout をリセットしない。
+- `TargetResponseTime` はアクセスログの `target_processing_time` と同じ。ALB がタスクに渡してから応答が戻るまで。**アプリ遅延の最もきれいな外測。** JMeter の Elapsed はその外側に、経路の往復と Connect（新規 TLS）を含む。
 
 アクセスログの三段時計:
 
@@ -884,7 +906,7 @@ EC2 に直接アプリを置くと、OS のパッチ、余った CPU、デプロ
 - 1 タスク内に複数コンテナ（アプリ + sidecar）。メトリクスはタスクとコンテナで別。
 - オートスケールは DesiredCount を変える。指標は CPU、メモリ、ALB RequestCountPerTarget、独自メトリクス。
 - 2024-12-02: Container Insights の enhanced observability。タスク/コンテナまで自動で細かく取れる。
-- 2026-06: 20 秒解像度メトリクスでスケールアウトが大幅に速くなった、という公式発表（ベンチでスケール開始まで約 76% 短縮、など）。それでも「秒で何倍」のスパイクには間に合わないことがある。
+- 2026-06-18: CPU とメモリのターゲット追跡に、20 秒解像度を選べるようになった。既定の 60 秒メトリクスは無料のまま残る。20 秒は追加の CloudWatch 料金がかかり、サービスの監視設定を変えるとデプロイが走る。使える定義済みメトリクスは `ECSServiceAverageCPUUtilizationHighResolution` と `ECSServiceAverageMemoryUtilizationHighResolution` である。RequestCountPerTarget が 20 秒になるわけではない。公式ベンチは、スケールアウトのトリガーまでが 363 秒から 86 秒（約 76% 短縮）、タスクの用意まで含めると 386 秒から 109 秒。秒で何倍、というスパイクには、まだ間に合わない。
 
 **接続プールはタスクの中にある。** タスクが 10 個、各プール最大 20 なら、Proxy/DB には最大 200 本。1 タスク試験で「20 本で足りた」を 10 倍すると、DB の `max_connections` を超える。
 
@@ -946,7 +968,7 @@ fields @timestamp, TaskId, CpuUtilized, MemoryUtilized, CpuReserved
 
 RDS/Aurora のプロビジョン型は、ピークに合わせて大きいインスタンスを常時借り、夜間は金が余る。逆に小さくするとセールで死ぬ。2018 年の Aurora Serverless v1 は「丸ごと別インスタンスに載せ替える」スケールで、接続が切れたり、段階が荒かった。v2（一般提供 2022 年頃）は **同じインスタンスの中で ACU を細かく変える** 方式になり、本番のオンラインに載るようになった。
 
-その後、最低 0 ACU のオートポーズ、最大 256 ACU、スケール速度の改善（2026 年時点で「1 秒で +12 ACU」などの公式発表）が入った。速くなっても **ゼロ遅延ではない。** 性能試験では「伸びている最中の p95」を別指標にする。
+その後、最低 0 ACU のオートポーズ、エンジンとプラットフォームの版が対応していれば最大 256 ACU が入った。2026-08-05 の公式発表は、プラットフォームバージョン 3 または 4 で、スケールアップの最初の 1 秒に最大 12 ACU まで立ち上がり、その後 256 ACU まで続きで伸びる、というものである。既定で有効。プラットフォーム 1 と 2 は 4 へ上げないとこの初期加速は付かない。**毎秒 +12 ACU で 256 まで直線に伸びる、という意味ではない。** 速くなってもゼロ遅延ではない。性能試験では「伸びている最中の p95」を別指標にする。
 
 ### 12.3 動作原理
 
@@ -955,9 +977,9 @@ RDS/Aurora のプロビジョン型は、ピークに合わせて大きいイン
 - Writer と Reader で独立に伸び縮み（クラスタ設定による）。
 - ストレージは Aurora 共有ストレージ。計算（ACU）とディスクは別メーター。
 - バッファプール（よく使うデータのメモリ）は ACU に比例する。最低 ACU が小さいと、暇な時間にメモリが捨てられ、次の負荷でディスク読み（キャッシュミス）になる。
-- オートポーズ（min=0）は開発向き。本番の全体性能試験中は **ポーズさせない。min をワークセットが載る値以上にする。**
+- オートポーズ（min=0）は開発向き。ユーザ接続があるとポーズしない。復帰の目安は約 15 秒。24 時間を超えてポーズしたままだと、より深いスリープになり 30 秒以上かかることがある。復帰後はポーズ前の ACU には戻らず、小さい容量から上がり直す。本番の全体性能試験中は **ポーズさせない。min をワークセットが載る値以上にする。** クライアントの接続タイムアウトは 15 秒より長くする。深いスリープがあり得るなら 30 秒以上。
 - スケール中もクエリは止めない設計だが、CPU/メモリの再配置で一時的に遅延が乗ることはある。
-- アイドル接続が多いとスケールダウンしにくい、またはメモリが空きにくい、という運用上の話がある。RDS Proxy の整理とセットで見る。
+- 開いた接続があるとオートポーズは始まらない。0 以外の最低 ACU まで下がらない理由には、Performance Insights や Aurora グローバルデータベースのようにメモリを使う機能もある。RDS Proxy の接続整理とセットで見る。
 
 ### 12.4 性能試験の観点
 
@@ -989,7 +1011,7 @@ RDS/Aurora のプロビジョン型は、ピークに合わせて大きいイン
 
 - コールド（min 0.5、バッファ空）の朝一数字を SLA にする。
 - 接続を張りっぱなしでスケールダウンしないのを「バグ」と呼ぶ。
-- v1 の「ポーズから復帰が数十秒〜分」と v2 を混同する。
+- v1 の長い復帰と、v2 の約 15 秒（24 時間超のポーズでは 30 秒以上）を混同する。v2 は復帰後、ポーズ前の ACU に戻らない。
 - 最大 256 ACU あれば無限、と思う。単一ライターの直列ロックは ACU を増やしても解けない。
 
 ---
@@ -1006,7 +1028,7 @@ RDS/Aurora のプロビジョン型は、ピークに合わせて大きいイン
 
 サーバレスとコンテナは **タスクや Lambda が急に増える。** それぞれが DB に接続すると、PostgreSQL/MySQL のプロセス/メモリが先に死ぬ。接続の確立自体も重い（認証、TLS、セッション初期化）。
 
-2019 年頃に RDS Proxy が一般化し、「アプリと DB の間で接続をプールし、トランザクション単位で使い回す（multiplexing）」役になった。フェイルオーバー時にアプリから見た切断を短くする、という目的もある。
+re:Invent 2019 でプレビューが始まり、2020-06-30 に MySQL と PostgreSQL で一般提供された。「アプリと DB の間で接続をプールし、トランザクション単位で使い回す（multiplexing）」役である。フェイルオーバー時にアプリから見た切断を短くする、という目的もある。
 
 ### 13.3 動作原理
 
@@ -1029,7 +1051,7 @@ DB 接続（少ない、重い、大事）
 
 ORM（例: 巨大な IN 句を展開する Prisma 等）は 16 KB を簡単に超える。現場ではピン留めで多重化が死に、Proxy を外した事例もある。
 
-クライアント接続の最大寿命は 24 時間（変更不可）。アイドルも Proxy が切る。アプリプールの idle timeout はそれより短くする。
+クライアント接続の最大寿命は 24 時間で、変更できない。アプリ側プールの最大寿命は 24 時間未満にする。アイドル切断は `IdleClientTimeout`（既定 1800 秒、範囲は 1 分〜8 時間）。アプリ側の idle はそれより短くする。初期化クエリへ `SET` を移しても、アプリが同じ `SET` を出し続けるとピン留めは残る。アプリのコードからも外す。セッションピン留めのフィルタは MySQL / MariaDB 向けで、PostgreSQL には無い。
 
 余分なホップなので、健全時でもミリ秒単位の加算がある。効果は「接続嵐を防ぐ」側に出る。接続が少ない安定 ECS では、メリットよりピン留めとホップが目立つことがある。
 
@@ -1040,7 +1062,7 @@ ORM（例: 巨大な IN 句を展開する Prisma 等）は 16 KB を簡単に�
 3. 1 タスクのプールサイズ × 最大タスク数が、Proxy の MaxConnectionsPercent と DB `max_connections` に収まるか。
 4. フェイルオーバー試験は別ラン。通常負荷の p95 と混ぜない。
 5. Lambda のように接続が短命な構成では Proxy の価値が高い。ECS 常駐では再評価する。
-6. 初期化クエリに共通 `SET` を寄せ、ピン留めを減らす。
+6. 共通の `SET` は初期化クエリへ移し、同じ文をアプリから出さない。PostgreSQL はピン留めフィルタが無いので、変数は DB 側で揃える。
 7. 16 KB 超 SQL を試験データで再現する（本番の巨大 IN 句）。小さな SQL だけの試験は楽観的すぎる。
 8. TLS 終端と認証（Secrets Manager）の遅延を Connect Time で見る。
 
@@ -1055,7 +1077,7 @@ ORM（例: 巨大な IN 句を展開する Prisma 等）は 16 KB を簡単に�
 - QueryDatabaseResponseLatency（ある場合）
 - ピン留め率 = Pinned / DatabaseConnections（理想は低い。ゼロでなくても、大半がピンなら失敗）
 
-公式ダッシュボードは「ピーク見込みの 30% ヘッドルーム」を推奨している。試験で 100% まで埋めると、本番のゆらぎで拒否が始まる。
+公式は `MaxConnectionsPercent` を、直近に観測した最大使用量より少なくとも 30% 高くするよう推奨している。Proxy が接続枠をノード間で再配分するとき、この余裕が無いと借用の待ちが増える。試験で許可接続を 100% まで埋めると、本番のゆらぎで拒否が始まる。
 
 ### 13.6 よくある間違い
 
@@ -1085,7 +1107,7 @@ Web がスケールする過程で、同じ読込を DB に何度も投げて死
 - Cluster mode enabled: 16384 スロットに分割。クライアントは全シャードに接続。マルチキーはハッシュタグ無しだと失敗。
 - Eviction: メモリ満杯でキーを捨てる。捨てた直後は DB へ。
 - TTL: 同じ時刻に大量期限切れ → 一斉ミス（thundering herd）。
-- 接続: ノードあたり `maxclients` 既定 65,000 だが、実効はメモリと TLS で下がる。タスク数 × プールがこれを超える。
+- 接続: 多くのノード型と Serverless の `maxclients` 既定は 65,000。t 系の小さいノードは 20,000 や 46,000 など、型ごとに低い。実効はメモリと TLS でさらに下がる。タスク数 × プールがこれを超える。
 
 ### 14.4 性能試験の観点
 
@@ -1101,7 +1123,7 @@ Web がスケールする過程で、同じ読込を DB に何度も投げて死
 ### 14.5 見るメトリクス
 
 - CacheHitRate、CacheHits、CacheMisses
-- EngineCPUUtilization（Redis/Valkey で特に重要。70〜90% で警戒）
+- EngineCPUUtilization（Redis/Valkey で特に重要。70〜90% は警戒の目安であり、公式の固定閾値ではない）
 - CPUUtilization
 - Evictions、Reclaimed
 - CurrConnections、NewConnections
@@ -1152,7 +1174,7 @@ Jasper の経験則では、同時実行はメモリ（仮想化／ページの�
 
 - JMeter Elapsed ≒ アプリ + 帳票 + DB
 - 帳票内部: データ取得、レイアウト、フォント、圧縮、書き出し
-- 並列上限を超えると **キュー待ち** が Elapsed に上乗せ。アプリ CPU は闲しているのに遅い。
+- 並列上限を超えると **キュー待ち** が Elapsed に上乗せ。アプリ CPU は空いているのに遅い。
 
 非同期化（ジョブ ID を返し、完成後に S3）すると、オンライン SLA から印刷時間を外せる。全体試験では「同期のまま測る」と「非同期後のオンラインだけ測る」を分ける。
 
@@ -1192,20 +1214,24 @@ Jasper の経験則では、同時実行はメモリ（仮想化／ページの�
 遅さは「合計」でしか見えない。分解する。
 
 ```text
-JMeter Elapsed
-  = インターネット往復
-  + API Gateway（Latency - IntegrationLatency）
-  + 認可
-  + ALB request_processing
-  + TargetResponseTime（アプリ）
-      = アプリ CPU
-      + キャッシュ往復
-      + Proxy 往復
-      + DB
-      + 帳票待ち
-      + 外部 I/O
-  + ALB response_processing
+JMeter Elapsed（入れ子。足し算の項を二重にしない）
+  ≒ クライアントと入口の往復（新規接続なら Connect Time も含む）
+  + API Gateway を通す場合の Latency
+      Latency = 門のオーバーヘッド + IntegrationLatency
+      オーバーヘッド（Latency - IntegrationLatency）に、認可・マッピング・変換が入る
+      IntegrationLatency ≒ ALB までのホップ
+          + request_processing_time
+          + target_processing_time（TargetResponseTime）
+              = アプリ CPU
+              + キャッシュ往復
+              + Proxy 往復
+              + DB
+              + 帳票待ち
+              + 外部 I/O
+          + response_processing_time
 ```
+
+認可を `(Latency - IntegrationLatency)` とは別に足さない。差の中身は、オーソライザの Latency メトリクスで見る。ALB 直打ちのランに、API Gateway の項は無い。
 
 **手順:**
 
@@ -1383,12 +1409,16 @@ X 軸は必ず UTC で揃える。注釈に「ランプ開始」「定常」「�
   https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html
 - Amazon ECS Container Insights（enhanced observability, 2024-12-02）  
   https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContainerInsights.html
-- ECS 高解像度メトリクスと高速オートスケール（2026-06 発表）  
+- ECS 高解像度メトリクスと高速オートスケール（2026-06-18。20 秒はオプトイン。トリガー 363 秒→86 秒）  
   https://aws.amazon.com/blogs/aws/amazon-ecs-introduces-new-high-resolution-metrics-for-faster-service-auto-scaling/
 - Aurora Serverless v2 の容量とオートポーズ  
-  https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2.setting-capacity.html
-- RDS Proxy のピン留め  
-  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-pinning.html
+  https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2.setting-capacity.html  
+  https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html
+- Aurora Serverless の初期スケール（2026-08-05。最初の 1 秒で最大 12 ACU。プラットフォーム 3/4）  
+  https://aws.amazon.com/about-aws/whats-new/2026/08/aurora-serverless-instant-12-acu-scaling/
+- RDS Proxy のピン留めと接続（24 時間、IdleClientTimeout、30% の余裕）  
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-pinning.html  
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-connections.html
 - ElastiCache メトリクスとクラスタモード（AWS 公式 / ブログのサイジング指針）
 
 クォータと ACU の上限はアカウントとエンジンバージョンで変わる。試験計画書には「確認した日付と値」を写す。

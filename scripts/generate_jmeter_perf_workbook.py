@@ -68,7 +68,12 @@ def note(ws: Worksheet, row: int, cols: int, text: str, color: str = PALE_GOLD) 
     cell.fill = fill(color)
     cell.font = font(False, SLATE, 10)
     cell.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
-    ws.row_dimensions[row].height = 36
+    # Full-width Japanese is about two Latin widths. Size the row from the merged width.
+    chars_per_line = max(36, 12 * cols)
+    visual_lines = 0
+    for part in text.split("\n"):
+        visual_lines += max(1, (len(part) + chars_per_line - 1) // chars_per_line)
+    ws.row_dimensions[row].height = min(96, max(36, 10 + visual_lines * 16))
 
 
 def headers(ws: Worksheet, row: int, titles: list[str], color: str = TEAL) -> None:
@@ -204,12 +209,12 @@ def cover(wb: Workbook) -> None:
         5,
         [
             ["文書の役割", "全体性能試験の設計・実行・報告の共通言語", "ガイド＋チェックリスト", "計画書の雛形に転記可"],
-            ["対象ツール", "Apache JMeter", "5.6.3（公式最新安定、2024-01-07）", "Java 8+ / 実行は Java 17 推奨"],
+            ["対象ツール", "Apache JMeter", "5.6.3（公式最新安定、2024-01-07）", "Java 8+ / 実行は Java 17 推奨。6.0 nightly は本試験に使わない"],
             ["本試験の実行", "非 GUI（CLI）", "jmeter -n -t ... -l ... -e -o ...", "GUI は作成とデバッグ専用"],
             ["標準の打ち込み位置", "アプリ能力は ALB 直下から", "API Gateway は別ラン", "門を測るか厨房を測るかを混ぜない"],
             ["ECS の測り方", "先に 1 タスクの飽和点", "その後 2/4/8 で直線性", "サービス平均 CPU だけでは不合格"],
             ["Aurora Serverless v2", "ACU 固定ランと伸縮ランを分ける", "試験中はオートポーズ禁止", "伸縮待ちをアプリ遅延と呼ばない"],
-            ["RDS Proxy", "ピン留め率を必須観測", "16KB 超 SQL は全エンジンでピン", "ピン留め多数なら多重化が死んでいる"],
+            ["RDS Proxy", "ピン留め率を必須観測", "16KB 超 SQL は全エンジンでピン。初期化クエリへ移してもアプリが SET を出すと残る", "PostgreSQL にピン留めフィルタは無い"],
             ["ElastiCache", "ホットとコールドを別ラン", "EngineCPU とヒット率", "ヒット 100% はキャッシュ単体試験"],
             ["帳票サーバ", "あり/なしのミックスを分離", "同期は 29 秒の壁", "ECS 増設では印刷室は増えない"],
             ["一次資料", "JTL + ログ + CloudWatch", "HTML は説明用", "平均より p95/p99"],
@@ -326,10 +331,10 @@ def history(wb: Workbook) -> None:
             ["2015", "API Gateway", "API の門をマネージドに", "アカウント RPS・429・29秒", "門と厨房を分けて測る"],
             ["2016", "ALB / JMeter 3.0 HTML", "コンテナへの L7 振り分け、報告の標準化", "502/503/504 の意味分化", "TargetResponseTime が外測の主"],
             ["2018-22", "Aurora Serverless v1→v2", "ピーク合わせ常時大型が無駄", "ACU 伸縮・バッファ・ポーズ", "固定ランと伸縮ラン"],
-            ["2019", "RDS Proxy", "コンテナ/Lambda の接続嵐", "ピン留め・三重プール", "Pinned メトリクス必須"],
+            ["2019 preview / 2020-06 GA", "RDS Proxy", "コンテナ/Lambda の接続嵐", "ピン留め・三重プール", "Pinned メトリクス必須"],
             ["2024-12", "ECS Container Insights enhanced", "タスク/コンテナまで自動観測", "平均が隠す偏りを可視化", "タスク単位メトリクス"],
-            ["2024-26", "ALB keepalive 寿命、Aurora 高速スケール、ECS 20秒メトリクス", "突発負荷とエージェントワークロード", "追いつくまでの空白は残る", "ランプとスパイクを混ぜない"],
-            ["2026 現在", "JMeter 5.6.3 が公式最新安定", "k6 等も増えるが JMX 資産は現役", "Coordinated Omission、非 GUI", "CLI + HTML + CloudWatch"],
+            ["2024-26", "ALB client keepalive、Aurora 初期12 ACU、ECS 20秒メトリクス", "20秒と初期加速は既定の全環境には付かない", "追いつくまでの空白は残る", "ランプとスパイクを混ぜない"],
+            ["2026 現在", "JMeter 5.6.3 が公式最新安定", "k6 等も増えるが JMX 資産は現役", "Coordinated Omission はパーセンタイルでは直らない", "CLI + HTML + CloudWatch"],
         ],
     )
 
@@ -341,15 +346,15 @@ def glossary(wb: Workbook) -> None:
     note(ws, 2, 6, "JMeter 用語と性能一般、AWS 層の用語を混在させている。カテゴリでフィルタすること。")
     headers(ws, 4, ["用語", "カテゴリ", "小学生向け", "動作原理", "試験での使い方", "よくある誤解"])
     rows = [
-        ["Test Plan / JMX", "JMeter", "試験の設計図", "XML でツリーを保存。機能モードは本文保持でメモリ死", "版管理する。機能モード OFF", "JMX があれば再現できる（プロパティ欠ける）"],
+        ["Test Plan / JMX", "JMeter", "試験の設計図", "機能モードは本文を結果ファイルへ書く。CSV には効かない。Tree がメモリを食う", "版管理する。機能モード OFF", "JMX があれば再現できる（プロパティ欠ける）"],
         ["Thread Group", "JMeter", "お客役の集団", "スレッド数・ランプ・ループ/時間", "同時ユーザか到着率かを先に決める", "スレッド数＝TPS"],
         ["Open Model Thread Group", "JMeter", "1秒に何人来るかで決める", "クローズド（人数固定）だと遅いとき TPS が自然減", "本番がオープンならこちら", "いつも Thread Group で足りる"],
         ["Ramp-up", "JMeter", "少しずつ増やす", "100人/100秒なら約1秒に1人", "オートスケールを間に合わせる", "短いほど「厳しい」良い試験"],
         ["Sampler", "JMeter", "注文を出す動作", "HTTP 等を送り SampleResult を作る", "ラベルを業務名で安定させる", "ブラウザと同じ"],
-        ["Connect Time", "JMeter", "電話をかけるまで", "TCP/TLS 握手", "毎回長い＝Keep-Alive 失敗か枯渇", "アプリの遅さ"],
-        ["Latency", "JMeter", "相手が「はい」と言うまで", "最初のバイトまで（TTFB に近い）", "PDF は Latency 短・Elapsed 長が正常", "Elapsed と同じ"],
-        ["Elapsed / Response Time", "JMeter", "料理が全部届くまで", "最後のバイトまで", "SLA の主指標（パーセンタイル）", "サーバ CPU 時間"],
-        ["Transaction Controller", "JMeter", "一連の注文を 1 業務にする", "親サンプルを TPS に出せる", "タイマーを含むかで SLA が変わる", "Hits/s と同じ"],
+        ["Connect Time", "JMeter", "電話がつながるまで", "TCP/TLS。Latency に含まれ、三つの時間は足さない", "毎回長い＝Keep-Alive 失敗か枯渇", "アプリの遅さ"],
+        ["Latency", "JMeter", "相手が最初に声を出すまで", "送る直前から最初の応答まで。アップロードを含む。TTFB とは一致しない", "PDF は Latency 短・Elapsed 長が正常", "Elapsed と同じ"],
+        ["Elapsed / Response Time", "JMeter", "料理が全部届くまで", "送る直前から最後のバイトまで。Latency を含む", "SLA の主指標（パーセンタイル）", "サーバ CPU 時間"],
+        ["Transaction Controller", "JMeter", "一連の注文を 1 業務にする", "合計サンプルは常に追加。親モードだと子は CSV に出ない", "既定オフ。統計の行を全部足すと二重", "Hits/s と同じ"],
         ["Think time / Timer", "JMeter", "メニューを見る時間", "サンプラー前に待つ", "ゼロはロボット攻撃", "Pacing と同じ"],
         ["CSV Data Set", "JMeter", "名簿から名前を読む", "スレッドごとに行を割り当て", "Recycle と Stop を意図的に", "1 ユーザ使い回しで十分"],
         ["Cookie Manager", "JMeter", "整理券を持って歩く", "スレッドごとに Cookie 保持", "ほぼ必須", "Header にベタ書きで足りる"],
@@ -361,16 +366,16 @@ def glossary(wb: Workbook) -> None:
         ["APDEX", "JMeter", "満足した人の割合", "satisfied / tolerated 閾値で 0〜1", "SLA に合わせて閾値変更（既定 0.5/1.5s は危険）", "既定のまま帳票を評価"],
         ["Throughput", "性能", "1秒に何件終わったか", "件数/秒。バイト/秒は別", "目標 TPS を先に書く", "帯域と同じ"],
         ["Percentile p95", "性能", "100人中95人目の待ち", "裾野の遅さ", "SLA は p95 か p99", "平均で代用"],
-        ["Coordinated Omission", "性能", "遅い時間に注文が減って平均が良く見える", "クローズドワークロードの性質", "到着率モデルとパーセンタイル", "JMeter のバグ"],
+        ["Coordinated Omission", "性能", "出せなかった注文が記録されず、平均も p95 も良く見える", "クローズドワークロードの性質。欠測は母集団に入らない", "到着率モデルと十分なスレッド", "パーセンタイルを見れば直る"],
         ["Warm-up", "性能", "準備運動", "JIT・プール・キャッシュ・ACU", "統計から除外", "短いほど効率的"],
         ["Saturation", "性能", "これ以上人を増やしても皿が増えない", "TPS 頭打ち＋遅延上昇", "1 タスク能力の定義点", "CPU 100% だけが飽和"],
         ["SLA / SLO / SLI", "性能", "約束 / 目標 / ものさし", "外向け・内向け・計測値", "合否表に写す", "全部同じ"],
         ["Workload mix", "性能", "メニューの割合", "参照70/更新20/帳票10 など", "ピーク1時間のログから", "全 API 均等"],
         ["Keep-Alive", "HTTP", "電話を切らずに次の話", "接続再利用で TLS を省略", "本番プロトコルに合わせる", "切った方が公平"],
-        ["API Gateway", "AWS", "校門の警備", "認可・スロットル・統合。既定 10,000 RPS", "アプリ試験では外す", "無限にスケール"],
+        ["API Gateway", "AWS", "校門の警備", "多くは 10,000 RPS / バースト 5,000。一部は 2,500 / 1,250。バーストは申請不可", "アプリ試験では外す", "無限にスケール"],
         ["429", "AWS", "門が満員", "トークンバケツが空", "アプリバグではない", "5xx と同じ扱い"],
-        ["Integration timeout 29s", "AWS", "門は29秒で追い出す", "REST 既定。HTTP API は30秒", "帳票同期の壁", "アプリ設定で延びる"],
-        ["ALB", "AWS", "配膳口", "L7 振り分け。idle 既定60s", "アプリ試験の標準エントリ", "Classic ELB と同じウォーム必須"],
+        ["Integration timeout 29s", "AWS", "門は29秒で追い出す", "REST 29秒。延長は Regional/private のみでスロットル引き下げがあり得る。HTTP API は30秒で不可", "帳票同期の壁。アイドル接続は別で310秒", "アプリ設定だけで延びる"],
+        ["ALB", "AWS", "配膳口", "idle 既定60秒（1-4000）。client keepalive は別で既定3600秒（クライアント側）", "アプリ試験の標準エントリ", "keepalive 3600 をターゲットの寿命と同一視"],
         ["TargetResponseTime", "AWS", "窓の奥の調理時間", "target_processing_time", "アプリ遅延のきれいな外測", "JMeter Elapsed と同じ"],
         ["ELB 502/503/504", "AWS", "渡し方の失敗の種類", "切断/健全ゼロかALB不足/待ち過ぎ", "コードで原因段が違う", "全部アプリ障害"],
         ["ECS Task", "AWS", "調理員ひとり", "CPU/メモリの課金と制限の単位", "1 タスク飽和が先", "サービス＝1 プロセス"],
@@ -378,9 +383,9 @@ def glossary(wb: Workbook) -> None:
         ["RequestCountPerTarget", "AWS", "一人あたり何皿", "ALB がターゲットごとに数える", "水平スケールの密度", "クラスタ全体の RPS"],
         ["Fargate", "AWS", "厨房の建物を借りない", "タスクサイズの組が固定", "垂直スケールは組の変更", "EC2 と同じ無制限 CPU"],
         ["ACU", "AWS", "倉庫の床の広さ", "約 2GiB メモリ＋CPU＋ネット", "min/max と実測 ServerlessDatabaseCapacity", "vCPU と同じ"],
-        ["Aurora auto-pause", "AWS", "倉庫を畳んで電気を消す", "min=0。復帰に時間がかかる", "本試験中は禁止", "v2 は常にポーズしない"],
+        ["Aurora auto-pause", "AWS", "倉庫を畳んで電気を消す", "min=0。復帰は約15秒。24時間超は30秒以上。復帰後は小さい ACU から", "本試験中は禁止。接続タイムアウトは15秒より長く", "v2 は常にポーズしない"],
         ["RDS Proxy multiplexing", "AWS", "席の使い回し", "トランザクション単位で DB 接続を再利用", "ピン留め率で効果を判定", "入れれば接続無限"],
-        ["Pinning", "AWS", "専用ロッカーを使い席が固定", "SET・一時表・SQL>16KB 等", "Pinned メトリクス必須", "ログに必ず出るエラー"],
+        ["Pinning", "AWS", "専用ロッカーを使い席が固定", "SET・一時表・SQL>16KB。PG にフィルタは無い", "Pinned メトリクス必須。SET はアプリからも外す", "アプリが必ずエラーにする"],
         ["EngineCPUUtilization", "AWS", "棚番一人の忙しさ", "Redis/Valkey コマンド処理の主スレッド", "ノード CPU より先に見る", "CPUUtilization と同じ"],
         ["Cache stampede", "AWS", "棚が空で全員が倉庫へ", "一斉ミスで DB へ雪崩", "コールドランとロック戦略", "ヒット率が高いから起きない"],
         ["帳票同期", "業務", "注文の最後に成績表を刷って渡す", "スレッドとタイムアウトを占有", "あり/なし分離、29秒監視", "ECS を増やせば速くなる"],
@@ -489,11 +494,11 @@ def reports(wb: Workbook) -> None:
         headers_row + 1,
         [
             ["APDEX", "トランザクション別 0〜1", "閾値を SLA に変更", "既定 500/1500ms は帳票を全不満にする", "条件付き", ""],
-            ["Requests Summary", "成功/失敗円", "失敗が無視できない割合か", "トランザクション親を含まない", "はい", ""],
+            ["Requests Summary", "成功/失敗円", "失敗が無視できない割合か", "Transaction Controller のサンプルは除く（公式）", "はい", ""],
             ["Statistics", "平均・分位・TPS・エラー", "p95/p99 とエラー率", "平均だけで語らない", "はい", ""],
             ["Errors / Top5", "コードとメッセージ", "401 と 429 と 504 を分けて数える", "業務 200 エラーはアサーション無しだと消える", "はい", ""],
             ["Active Threads Over Time", "負荷プロファイル", "ランプと定常が意図どおりか", "落ちていたらジェネレータ死", "はい", ""],
-            ["Response times Over Time", "時系列遅延", "階段状ならスケール待ち", "粒度 <1s は公式非推奨", "はい", ""],
+            ["Response times Over Time", "時系列遅延", "階段状ならスケール待ち", "粒度は 1000ms より大きいこと。既定 60000。p95 は GUI と計算式が違う", "はい", ""],
             ["Transactions per second", "業務 TPS", "目標維持", "Hits/s と別物", "はい", ""],
             ["Hits / Codes per second", "ヒットと HTTP コード", "429/5xx の時刻", "埋め込み資源の扱い", "条件", ""],
             ["Connect Time Over Time", "握手", "TLS 嵐・枯渇", "アプリ遅延と分離", "はい", ""],
@@ -525,19 +530,26 @@ def cautions(wb: Workbook) -> None:
             ["高", "ジェネレータ過負荷", "Connect 増、サーバ暇", "無効試験", "CPU<70%、分散", "BlazeMeter 目安等"],
             ["高", "タイムアウト入れ子無視", "クライアントエラーなのにサーバ成功", "帳票が裏で完走", "層ごとの秒数表", "16_帳票"],
             ["高", "平均だけで合格", "p99 爆発", "1% の激怒", "p95/p99", "19_合否"],
-            ["中", "機能モード ON", "OOM", "本文全保持", "OFF", "Test Plan"],
+            ["中", "機能モード ON", "リソース増。CSV 自体は太らない", "本文は結果ファイル向け。メモリ死の主因は Tree", "OFF。本試験は CSV", "Test Plan"],
             ["中", "XML JTL", "ディスクと後処理が重い", "分析不能", "CSV、必要列だけ", "user.properties"],
             ["中", "BeanShell / ${var} 埋め込み Groovy", "CPU 高", "コンパイル不能・キャッシュ汚染", "JSR223 cache + vars.get", "公式 16.12"],
             ["中", "WAF が攻撃判定", "403 山", "セキュリティ試験が混入", "許可リストと別ラン", "セキュリティ"],
             ["中", "NTP ずれ", "グラフが噛み合わない", "切り分け不能", "UTC 統一", "全ホスト"],
             ["中", "隣の API とクォータ共有", "理由なき 429", "アカウント 10k RPS 共有", "試験枠の調整", "Service Quotas"],
             ["中", "キャッシュ温めすぎ", "DB 暇", "本番より楽観", "ヒット率目標を設定", "15_ElastiCache"],
-            ["中", "ACU ポーズ", "初回だけ十数秒", "コールドを SLA に", "min>0、試験前ウォーム", "13_Aurora"],
+            ["中", "ACU ポーズ", "初回だけ約15秒。24時間超は30秒以上", "コールドを SLA に。復帰後は小さい ACU から", "min>0、試験前ウォーム", "13_Aurora"],
             ["中", "アプリ keep-alive < ALB idle", "502", "切れた接続に ALB が送る", "アプリを長く", "11_ALB"],
             ["中", "帳票デバッグログ ON", "印刷だけ遅い", "測定を自分で遅くする", "OFF", "SVF KB"],
             ["中", "外部メール/SaaS 本番", "請求とレート制限", "隣を破壊", "スタブ＋遅延注入", "計画"],
             ["低", "jmeter.properties 直接編集", "次版移行で上書き", "設定喪失", "user.properties", "公式 16.14"],
-            ["低", "HTML 粒度 <1s", "TPS グラフ崩壊", "公式が警告", ">=1000ms", "Dashboard 文書"],
+            ["低", "HTML 粒度が 1000ms 以下", "TPS グラフが不正", "公式は 1 秒より大きいこと", "既定 60000。1000 以下にしない", "Dashboard 文書"],
+            ["高", "Generate parent sample をオン", "Hits/s が消える、または統計を足して二重", "親モードでは子が CSV に出ない。オフでは子と合計の両方がある", "既定のオフ。合計行を他と足さない", "Dashboard 14.2"],
+            ["高", "REST 統合タイムアウトの延長", "アカウント RPS が下がることがある", "29秒超は Regional/private のみ。スロットル引き下げが条件になり得る", "延長とクォータを同じ日付で記録", "Service Quotas"],
+            ["中", "ALB client keepalive 既定 3600秒", "ソークで約1時間ごとに Connect が跳ねる", "クライアントと ALB の最大寿命。ターゲット側ではない", "試験時間と比較。無効化不可", "11_ALB"],
+            ["中", "ECS 20秒メトリクスが未設定", "スケール開始が数分のまま", "CPU/メモリのターゲット追跡だけ。追加料金。有効化はデプロイ", "オプトインを別ランで確認", "12_ECS"],
+            ["中", "setUp を sample_filter しない", "準備リクエストが TPS に混ざる", "JTL は全スレッドグループを残す", "ラベルを分けて除外", "HTML"],
+            ["中", "Header/Cookie Manager が複数", "認証ヘッダが片方だけ", "Manager はマージされない。どれが使われるか指定できない", "スコープに一つ", "JMX"],
+            ["中", "Aurora を毎秒 +12 ACU と読む", "伸縮の期待が過大", "2026-08-05 は最初の1秒で最大12 ACU。プラットフォーム 3/4", "固定ランと伸縮ランを分ける", "13_Aurora"],
         ],
     )
 
@@ -601,11 +613,11 @@ def apigw(wb: Workbook) -> None:
         [
             ["受け口", "HTTPS を受けステージ/ルート決定", "エッジとリージョナルでレイテンシ差", "ペイロード 10MB"],
             ["オーソライザ", "IAM / Cognito / Lambda", "キャッシュ無しだと先に死ぬ", "結果キャッシュ TTL"],
-            ["スロットル", "トークンバケツ。空なら 429", "アカウント×リージョンの全 API 共有", "10,000 RPS、バースト最大 5,000（一部リージョン 2,500/1,250）"],
+            ["スロットル", "トークンバケツ。空なら 429", "HTTP/REST/WebSocket 合計。レートは申請可。バーストは顧客が指定できない", "多くは 10,000 RPS / バースト 5,000。一部は 2,500 / 1,250"],
             ["Usage Plan / API Key", "クライアント別のバケツ", "試験キーと本番キーを分ける", "プラン設定"],
-            ["統合", "HTTP / Lambda / VPC Link→ALB", "IntegrationLatency が後ろの時間", "VPC Link v2 で private ALB 直結可"],
+            ["統合", "HTTP / Lambda / VPC Link V2→ALB または NLB", "IntegrationLatency が後ろの時間。認可は Latency との差の中", "2025-11-21 以降 REST も private ALB 直結。V1 は NLB"],
             ["時計", "Latency 全体、IntegrationLatency 後ろ", "差が大きいと門自身が重い", "CloudWatch"],
-            ["時間切れ", "統合タイムアウト", "帳票同期が 504。アプリは成功していることあり", "REST 29s（Regional/private は申請で延長可）、HTTP API 30s は不可"],
+            ["時間切れ", "統合タイムアウト", "延長は Regional/private のみ。スロットル引き下げがあり得る。アイドル接続は別で 310 秒", "REST 29秒、HTTP API 30秒は不可。Lambda プロキシは 6MB"],
             ["課金", "リクエスト課金", "高負荷試験の費用を支配", "別アカウント/ステージ"],
         ],
     )
@@ -648,7 +660,7 @@ def alb(wb: Workbook) -> None:
             ["response_processing_time", "クライアントへ書き戻し", "巨大ボディ、遅いクライアント", "帳票 PDF サイズ"],
             ["JMeter Elapsed との差", "インターネット＋TLS＋GW", "差が大きいなら経路", "ランAとBの差分"],
             ["idle timeout 既定 60s（1-4000）", "無通信で切る", "帳票同期 504。ログ値が idle と一致", "短縮するか非同期化"],
-            ["HTTP client keepalive duration（2024〜、既定3600s）", "接続の最大寿命", "長時間ソークでの再接続", "ジェネレータも追従"],
+            ["client_keep_alive.seconds（2024-03〜、既定3600、範囲60〜604800）", "クライアントと ALB の最大寿命。ターゲット側ではない", "期限後にもう1リクエストを受けて閉じる。ソークで Connect が周期的に跳ねる", "無効化不可。HTTP/2 PING は idle をリセットしない"],
             ["アプリ keep-alive > ALB idle", "切れた接続への送り防止", "502", "公式推奨"],
             ["502", "タスクが乱暴に切断", "プロセス死、keep-alive 不整合", "タスクログ、graceful"],
             ["503", "健全ターゲットゼロ or ALB 不足", "起動中、急ランプ", "ランプ、ヘルス、ウォーム"],
@@ -670,7 +682,8 @@ def ecs(wb: Workbook) -> None:
         2,
         4,
         "たとえ: 調理員ひとり。平均「普通」でも一人だけ炎上することがある。2014 ECS、2017 Fargate で課金と制限の単位がタスクサイズになった。"
-        "2024-12 Container Insights enhanced。2026-06 に 20 秒メトリクスでスケール開始が大幅に短縮（公式ベンチ）。",
+        "2024-12-02 Container Insights enhanced。2026-06-18 の 20 秒メトリクスは CPU/メモリのターゲット追跡のみでオプトイン。"
+        "公式ベンチはトリガー 363秒→86秒。追加の CloudWatch 料金があり、有効化はデプロイを伴う。",
     )
     r = section_title(ws, 4, 4, "なぜタスク単位か", GOLD)
     headers(ws, r, ["理由", "原理", "平均だけだと", "取り方"])
@@ -723,7 +736,7 @@ def ecs(wb: Workbook) -> None:
             ["RequestCountPerTarget", "ALB ターゲット", "一人あたり皿", "1 タスク飽和と単位を揃える"],
             ["JVM GC / heap / threads", "アプリ", "待ちの中身", "CPU 低・遅延高なら待ち"],
             ["ephemeral storage", "Fargate", "帳票一時ファイル", "ディスクフル 5xx"],
-            ["高解像度 20s（2026〜）", "Service", "速いスケール用", "短いスパイクでも間に合わないことはある"],
+            ["高解像度 20s（2026-06-18〜、オプトイン）", "Service の CPU/メモリのみ", "トリガー 363秒→86秒。用意まで 386秒→109秒", "既定ではない。RequestCountPerTarget は 20秒にならない。追加料金"],
         ],
         apply_filter=False,
     )
@@ -738,7 +751,8 @@ def aurora(wb: Workbook) -> None:
         2,
         4,
         "v1（2018）は載せ替えで切れやすかった。v2（2022〜）は同じインスタンス内で ACU を細かく変える。"
-        "ACU≒2GiB。min 0（ポーズ）〜 max 256。2026 年公式は 1 秒で +12 ACU などの高速化を発表。ゼロ遅延ではない。",
+        "ACU≒2GiB。対応版で min 0〜 max 256。2026-08-05 の発表は、プラットフォーム 3/4 で最初の1秒に最大12 ACUまで立ち上がり、その後256まで続く。"
+        "毎秒 +12 ACU ではない。ポーズ復帰は約15秒。24時間超は30秒以上で、復帰後は小さい ACU から上がり直す。",
     )
     r = section_title(ws, 4, 4, "原理と試験観点", GOLD)
     headers(ws, r, ["項目", "原理", "試験でやること", "やってはいけない"])
@@ -748,7 +762,7 @@ def aurora(wb: Workbook) -> None:
         [
             ["ACU", "メモリ・CPU・ネットの束。刻み 0.5 から", "ServerlessDatabaseCapacity を時系列で取る", "vCPU 枚数と同一視"],
             ["バッファプール", "よく使うデータはメモリ。min が小さいと捨てられる", "min をワークセットが載る値以上に", "min=0.5 のコールドを SLA に"],
-            ["オートポーズ min=0", "暇なら畳む。復帰に時間がかかる（条件で十数秒）", "本試験中は min>0、事前ウォーム", "開発設定のまま本番相当試験"],
+            ["オートポーズ min=0", "接続があると畳まない。復帰は約15秒。24時間超は30秒以上。前の ACU には戻らない", "本試験中は min>0。接続タイムアウトは15秒より長く", "開発設定のまま本番相当試験"],
             ["固定ラン min=max", "プロビジョン相当", "アプリ＋スキーマの真の能力", "伸縮ランだけ"],
             ["伸縮ラン", "本番 min/max", "p95 の階段と ACU 上昇の遅れを別指標に", "スケール待ちを SQL バグと呼ぶ"],
             ["上限張り付き", "これ以上床が広がらない", "max 引き上げかプロビジョン/分割", "「サーバレスだから無限」"],
@@ -768,8 +782,9 @@ def rdsproxy(wb: Workbook) -> None:
         ws,
         2,
         4,
-        "2019 年頃、Lambda/コンテナの接続嵐とフェイルオーバー切断を和らげるために登場。"
-        "トランザクション単位で DB 接続を使い回す。セッション状態が付くとピン留め（1:1）。SQL 16KB 超は全エンジンでピン（公式）。",
+        "プレビューは 2019 年頃、一般提供は 2020 年。Lambda/コンテナの接続嵐とフェイルオーバー切断を和らげる。"
+        "トランザクション単位で DB 接続を使い回す。SQL 16KB 超は全エンジンでピン。クライアント接続の最大寿命は 24 時間（変更不可）。"
+        "IdleClientTimeout の既定は 30 分。MaxConnectionsPercent は直近ピークより少なくとも 30% 高くする。",
     )
     r = section_title(ws, 4, 4, "原理", GOLD)
     headers(ws, r, ["状態", "何が起きるか", "メトリクス", "試験アクション"])
@@ -779,11 +794,11 @@ def rdsproxy(wb: Workbook) -> None:
         [
             ["多重化（健全）", "外は多く、中は少ない。席の使い回し", "Client >> Database でも待ちが少ない", "あり/なし比較でレイテンシ差を見る"],
             ["ピン留め", "SET、一時表、巨大 SQL、一部 PREPARE 等で席が固定", "DatabaseConnectionsCurrentlySessionPinned", "本番相当の巨大 IN 句を再現"],
-            ["三重プール", "アプリ池 + Proxy 池 + DB", "Borrowed とアプリ active", "idle を Proxy より短く。24h 寿命に注意"],
+            ["三重プール", "アプリ池 + Proxy 池 + DB", "Borrowed とアプリ active", "アプリの寿命は24時間未満。idle は IdleClientTimeout（既定30分）より短く"],
             ["ピン率が高い", "高い整理券機が延長コードになる", "Pinned ≈ Borrowed", "導入是非を再評価（外した事例あり）"],
             ["接続嵐", "タスク急増で DB プロセスが死ぬ", "ClientConnections 急増、DB conn 上限", "ここが Proxy の本領。Lambda 向き"],
             ["ヘルス SELECT 1", "アイドル判定を壊し接続が減らない", "conn が下がらない", "ヘルス間隔と idle の設計"],
-            ["ヘッドルーム", "公式ダッシュボードはピークの 30% 余裕を推奨", "MaxDatabaseConnectionsAllowed", "試験で 100% 埋めない"],
+            ["ヘッドルーム", "MaxConnectionsPercent は直近の最大使用量より少なくとも 30% 高くする（公式）", "MaxDatabaseConnectionsAllowed と DatabaseConnections", "試験で許可枠を 100% 埋めない"],
         ],
     )
     r2 = section_title(ws, 13, 4, "ピン留めを誘発しやすいもの", GOLD)
@@ -798,7 +813,7 @@ def rdsproxy(wb: Workbook) -> None:
         r2 + 1,
         [
             ["SQL テキスト > 16KB", "公式・全エンジン", "ORM の巨大 IN、長い SELECT", "SQL 分割、ピン率監視"],
-            ["SET / セッション変数", "接続ごとに状態が違うと再利用不能", "アプリ初期化、タイムゾーン", "Initialization query へ寄せる"],
+            ["SET / セッション変数", "接続ごとに状態が違うと再利用不能", "アプリ初期化、タイムゾーン", "初期化クエリへ移し、アプリの SQL からも消す。PG はフィルタ不可"],
             ["一時表", "そのセッション専用", "バッチ的 API", "アプリ側一時、またはピンを許容して台数計算"],
             ["PostgreSQL の変数", "MySQL よりピンになりやすい", "ドライバの session_track", "フィルタは MySQL 中心。PG は設計見直し"],
             ["DISCARD ALL リセット", "プール返却時", "一部ライブラリ既定", "リセット方法変更"],
@@ -826,7 +841,7 @@ def elasticache(wb: Workbook) -> None:
             ["ホット", "本番相当ヒット", "ウォーム後定常", "HitRate、p95"],
             ["コールド", "全員が倉庫へ", "空または別キー", "DB CPU、stampede"],
             ["ホットキー", "人気の一瓶に行列", "意図的に同じ ID", "EngineCPU、単一シャード"],
-            ["接続", "握手はコマンドより高い", "プールサイズ×タスク", "CurrConnections、NewConnections"],
+            ["接続", "握手はコマンドより高い。maxclients は多くの型で 65000、小さい t 系は 20000 や 46000", "プールサイズ×タスク", "CurrConnections、NewConnections、ノード型の maxclients"],
             ["Cluster mode", "16384 スロット。クライアントは全シャードへ接続", "本番と同じモード", "MOVED、シャード偏り"],
             ["Eviction", "メモリ満杯で捨てる", "ソーク", "Evictions 後のミス"],
             ["TTL 一斉切れ", "同じ時刻に棚が空", "TTL を試験用に揃えすぎない", "ミスの波"],
@@ -897,7 +912,7 @@ def correlation(wb: Workbook) -> None:
         ws,
         2,
         5,
-        "Elapsed ≒ 往復 + (GW Latency-IntegrationLatency) + 認可 + ALB request + TargetResponseTime(アプリ+キャッシュ+Proxy+DB+帳票) + response。",
+        "Elapsed は入れ子。認可は (Latency-IntegrationLatency) の中なので別に足さない。ALB 直打ちに API Gateway の項は無い。Connect は Elapsed に含まれ、TargetResponseTime には入らない。",
     )
     headers(ws, 4, ["順", "操作", "差が出たら原因", "差が無ければ", "次"])
     put_rows(
@@ -1110,7 +1125,7 @@ def commands(wb: Workbook) -> None:
             ["プロパティ差し込み", "jmeter -n -t test.jmx -l results.jtl -e -o html-report -Jthreads=80 -Jhost=internal-alb.example.local -Jduration=1800", "スレッド・ホスト・秒", "JMX 側は ${__P(threads,10)}"],
             ["追加プロパティ", "jmeter -n -t test.jmx -q extra.properties -l results.jtl", "セットで切替", "jmeter.properties は直接編集しない"],
             ["既存 JTL から HTML", "jmeter -g results.jtl -o html-report", "再集計", "粒度と APDEX は user.properties"],
-            ["Java 確認", "java -version", "17 推奨", "8 未満は 5.6.3 不可"],
+            ["Java 確認", "java -version", "安定版 5.6.3 は Java 8 以上。実行は 17 推奨", "6.0 nightly は Java 17 必須。本試験に使わない"],
             ["ECS タスク CPU (Logs Insights)", 'fields @timestamp, TaskId, CpuUtilized, MemoryUtilized, CpuReserved | filter Type = "Task" | stats avg(CpuUtilized), max(CpuUtilized), avg(MemoryUtilized), max(MemoryUtilized) by TaskId', "偏り", "カスタムメトリクス化は課金"],
             ["ALB idle 確認", 'aws elbv2 describe-load-balancer-attributes --load-balancer-arn ARN --query "Attributes[?Key==\'idle_timeout.timeout_seconds\']"', "60s 既定", "帳票同期と突合"],
             ["GW クォータ", "Service Quotas コンソールで API Gateway Throttle rate", "10,000 既定", "リージョン差"],
@@ -1131,21 +1146,20 @@ def references(wb: Workbook) -> None:
         [
             ["JMeter 本体・最新 5.6.3", "https://jmeter.apache.org/  / download_jmeter.cgi", "版と Java 要件"],
             ["JMeter Best Practices", "https://jmeter.apache.org/usermanual/best-practices.html", "非 GUI、リスナー、Groovy"],
-            ["JMeter Dashboard", "https://jmeter.apache.org/usermanual/generating-dashboard.html", "APDEX、粒度 >=1s"],
+            ["JMeter Dashboard", "https://jmeter.apache.org/usermanual/generating-dashboard.html", "APDEX 既定500/1500。粒度は1000msより大きい。既定60000"],
             ["JMeter Changes 5.6.3", "https://jmeter.apache.org/changes.html", "既知修正"],
-            ["API Gateway クォータ", "https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html", "10k RPS、バースト、29s"],
+            ["API Gateway クォータ", "https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html", "多くは10k RPS/バースト5k。一部2500/1250。29秒延長でスロットル減があり得る"],
             ["API Gateway throttling", "https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html", "トークンバケツ"],
-            ["ALB idle timeout", "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html", "既定 60s、1-4000、keep-alive 整合"],
+            ["ALB idle と client keepalive", "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html", "idle 既定60秒（1-4000）。client_keep_alive 既定3600（60-604800）"],
             ["ALB TargetResponseTime", "https://repost.aws/knowledge-center/alb-troubleshoot-targetresponsetime", "target_processing_time"],
             ["ECS サービス使用率", "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service_utilization.html", "予約対使用"],
             ["Container Insights", "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContainerInsights.html", "enhanced 2024-12-02"],
-            ["ECS 高解像度メトリクス", "https://aws.amazon.com/blogs/aws/amazon-ecs-introduces-new-high-resolution-metrics-for-faster-service-auto-scaling/", "20s、2026-06"],
+            ["ECS 高解像度メトリクス", "https://aws.amazon.com/blogs/aws/amazon-ecs-introduces-new-high-resolution-metrics-for-faster-service-auto-scaling/", "2026-06-18。オプトイン。トリガー363秒→86秒"],
             ["Aurora Sv2 容量", "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2.setting-capacity.html", "min/max、バッファ"],
             ["Aurora オートポーズ", "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless-v2-auto-pause.html", "min=0"],
-            ["Aurora 高速スケール（ブログ）", "https://aws.amazon.com/blogs/database/faster-scaling-for-aurora-serverless-to-support-agentic-ai-and-other-spiky-workloads/", "+12 ACU/s 等（発表値）"],
+            ["Aurora 初期スケール（2026-08-05）", "https://aws.amazon.com/about-aws/whats-new/2026/08/aurora-serverless-instant-12-acu-scaling/", "最初の1秒で最大12 ACU。プラットフォーム3/4。毎秒+12ではない"],
             ["RDS Proxy ピン留め", "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-pinning.html", "16KB、SET"],
-            ["RDS Proxy 接続", "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-connections.html", "24h、idle"],
-            ["RDS Proxy ダッシュボード", "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-monitoring-dashboard.html", "30% ヘッドルーム"],
+            ["RDS Proxy 接続", "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy-connections.html", "寿命24時間。IdleClientTimeout 既定30分。MaxConnectionsPercent は直近ピーク+30%"],
             ["SVF 並列・ログ", "ウイングアーク KB（UCX 並列、一時ディレクトリ、デバッグ OFF）", "帳票天井"],
             ["JasperReports 負荷", "Jaspersoft Community（JMeter での負荷、virtualizer、同時実行）", "メモリが先に限界になりやすい"],
             ["同梱 Markdown", "docs/JMeter_全体パフォーマンステスト完全解説.md", "文章の深掘り本体"],
